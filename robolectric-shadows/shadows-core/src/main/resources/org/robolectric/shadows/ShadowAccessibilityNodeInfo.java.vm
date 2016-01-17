@@ -989,11 +989,12 @@ public class ShadowAccessibilityNodeInfo {
       LinkedList<ShadowAccessibilityNodeInfo> visitedNodes = new LinkedList<>();
       areEqual &=
           (otherShadow.children != null) && childrenEqualityCheck(otherShadow, visitedNodes);
-      if (!shadowOf(parent).visitedWhenCheckingChildren) {
-        areEqual &= (
-            parent == null
-                ? otherShadow.parent == null : shadowOf(parent).equals(otherShadow.parent));
+      if (parent == null) {
+        areEqual &= (otherShadow.parent == null);
+      } else if (!shadowOf(parent).visitedWhenCheckingChildren){
+        areEqual &= (shadowOf(parent).equals(otherShadow.parent));
       }
+
       while (!visitedNodes.isEmpty()) {
         ShadowAccessibilityNodeInfo visitedNode = visitedNodes.remove();
         visitedNode.visitedWhenCheckingChildren = false;
@@ -1086,7 +1087,7 @@ public class ShadowAccessibilityNodeInfo {
       areEqual &= (traversalAfter.equals(otherShadow.traversalAfter));
     }
     if (traversalBefore == null) {
-      areEqual &= (otherShadow.traversalAfter == null);
+      areEqual &= (otherShadow.traversalBefore == null);
     } else {
       areEqual &= (traversalBefore.equals(otherShadow.traversalBefore));
     }
@@ -1220,8 +1221,8 @@ public class ShadowAccessibilityNodeInfo {
     newShadow.error = error;
 #end
 #if ($api >= 22)
-    newShadow.traversalAfter = traversalAfter;
-    newShadow.traversalBefore = traversalBefore;
+    newShadow.traversalAfter = (traversalAfter == null) ? null : obtain(traversalAfter);
+    newShadow.traversalBefore = (traversalBefore == null) ? null : obtain(traversalBefore);
 #end
     return newInfo;
   }

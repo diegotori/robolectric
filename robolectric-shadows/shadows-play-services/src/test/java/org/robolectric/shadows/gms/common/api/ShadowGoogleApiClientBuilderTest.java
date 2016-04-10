@@ -32,7 +32,7 @@ import static org.mockito.Mockito.*;
  */
 @RunWith(RobolectricTestRunner.class)
 @Config(manifest = Config.NONE)
-public class ShadowGoogleApiClientTest {
+public class ShadowGoogleApiClientBuilderTest {
     private static final String MOCK_APP_ID = "com.foo.app.id";
 
     @Mock
@@ -94,8 +94,8 @@ public class ShadowGoogleApiClientTest {
         final ShadowGoogleApiClient.ShadowBuilder shadowBuilder
                 = Shadows.shadowOf(new GoogleApiClient.Builder(mockContext));
 
-        verify(mockContext).getMainLooper();
-        verify(mockContext).getPackageName();
+        verify(mockContext, times(2)).getMainLooper();
+        verify(mockContext, times(2)).getPackageName();
         assertThat(shadowBuilder.getContext()).isNotNull().isEqualTo(mockContext);
         assertThat(shadowBuilder.looper).isNotNull().isEqualTo(mockLooper);
         assertThat(shadowBuilder.getAppId()).isNotNull().isNotEmpty().isEqualTo(MOCK_APP_ID);
@@ -111,8 +111,8 @@ public class ShadowGoogleApiClientTest {
                 mockConnCallbacks,
                 mockConnFailedListener));
 
-        verify(mockContext, times(2)).getMainLooper();
-        verify(mockContext, times(2)).getPackageName();
+        verify(mockContext, times(3)).getMainLooper();
+        verify(mockContext, times(3)).getPackageName();
         assertThat(shadowBuilder.looper).isNotNull().isEqualTo(mockLooper);
         assertThat(shadowBuilder.getAppId()).isNotNull().isNotEmpty().isEqualTo(MOCK_APP_ID);
         assertThat(shadowBuilder.getConnCallbacks()).isNotEmpty();
@@ -192,7 +192,7 @@ public class ShadowGoogleApiClientTest {
                 = Shadows.shadowOf(new GoogleApiClient.Builder(roboContext)
                 .setHandler(mockHandler));
 
-        verify(mockHandler).getLooper();
+        verify(mockHandler, times(2)).getLooper();
         assertThat(shadowBuilder.getLooper()).isNotNull().isEqualTo(mockLooper);
     }
 
@@ -207,19 +207,23 @@ public class ShadowGoogleApiClientTest {
         assertThat(shadowBuilder.getViewForPopups()).isNotNull().isEqualTo(mockView);
     }
 
+    @SuppressWarnings("unchecked")
     @Test
     public void addApi__WithOptions(){
         final String mockScopeUri = "foobar";
         when(mockApiScope.zzpb()).thenReturn(mockScopeUri);
         final List<Scope> mockApiScopes = new ArrayList<>();
         mockApiScopes.add(mockApiScope);
-        when(mockApi.zzoP().zzo(mockApiOptions)).thenReturn(mockApiScopes);
+        final Api.zza mockZza = mock(Api.zza.class);
+        when(mockApi.zzoP()).thenReturn(mockZza);
+        when(mockZza.zzo(mockApiOptions)).thenReturn(mockApiScopes);
 
         final ShadowGoogleApiClient.ShadowBuilder shadowBuilder
                 = Shadows.shadowOf(new GoogleApiClient.Builder(mockContext)
                 .addApi(mockApi, mockApiOptions));
 
-        verify(mockApi).zzoP().zzo(mockApiOptions);
+        verify(mockZza, times(2)).zzo(mockApiOptions);
+        verify(mockApi, times(2)).zzoP();
         verify(mockApiScope).zzpb();
         assertThat(shadowBuilder.getScopeUris()).isNotEmpty();
         assertThat(shadowBuilder.getScopeUris().contains(mockScopeUri)).isTrue();
@@ -228,6 +232,7 @@ public class ShadowGoogleApiClientTest {
         assertThat(shadowBuilder.getApiMap().containsValue(mockApiOptions)).isTrue();
     }
 
+    @SuppressWarnings("unchecked")
     @Test
     public void addApi(){
         final String mockScopeUri = "foobar";
@@ -236,14 +241,14 @@ public class ShadowGoogleApiClientTest {
         mockApiScopes.add(mockApiScope);
         final Api.zza mockZza = mock(Api.zza.class);
         when(mockNonOptsApi.zzoP()).thenReturn(mockZza);
-        doNothing().when(mockZza).zzo(null);
-        when(mockNonOptsApi.zzoP().zzo(null)).thenReturn(mockApiScopes);
+        when(mockZza.zzo(null)).thenReturn(mockApiScopes);
 
         final ShadowGoogleApiClient.ShadowBuilder shadowBuilder
                 = Shadows.shadowOf(new GoogleApiClient.Builder(mockContext)
                 .addApi(mockNonOptsApi));
 
-        verify(mockNonOptsApi).zzoP().zzo(null);
+        verify(mockZza, times(2)).zzo(null);
+        verify(mockNonOptsApi, times(2)).zzoP();
         verify(mockApiScope).zzpb();
         assertThat(shadowBuilder.getScopeUris()).isNotEmpty();
         assertThat(shadowBuilder.getScopeUris().contains(mockScopeUri)).isTrue();
@@ -271,9 +276,31 @@ public class ShadowGoogleApiClientTest {
                 .isEqualTo(mockFragActivity);
     }
 
+    @SuppressWarnings("unchecked")
     @Test
     public void build(){
-        final GoogleApiClient client = new GoogleApiClient.Builder(roboContext).build();
-        assertThat(client).isNotNull().isInstanceOf(GoogleApiClient.class);
+        final String mockApiName = "some API name";
+        final String mockScopeUri = "some Scope URI";
+        final Api.zza mockClientBuilder = mock(Api.zza.class);
+        final Api.zze mockClientKey = mock(Api.zze.class);
+        final List<Scope> mockApiScopes = new ArrayList<>();
+        mockApiScopes.add(mockApiScope);
+        when(mockClientKey.getPriority()).thenReturn(Integer.MAX_VALUE);
+        when(mockNonOptsApi.zzoP()).thenReturn(mockClientBuilder);
+        when(mockNonOptsApi.zzoQ()).thenReturn(mockClientKey);
+        when(mockNonOptsApi.zzoS()).thenReturn(true);
+        when(mockNonOptsApi.getName()).thenReturn(mockApiName);
+        when(mockApiScope.zzpb()).thenReturn(mockScopeUri);
+        when(mockClientBuilder.zzo(null)).thenReturn(mockApiScopes);
+
+        final GoogleApiClient client = new GoogleApiClient.Builder(roboContext)
+                .addConnectionCallbacks(mockConnCallbacks)
+                .addOnConnectionFailedListener(mockConnFailedListener)
+                .addApi(mockNonOptsApi)
+                .build();
+
+        final ShadowGoogleApiClient shadowClient = Shadows.shadowOf(client);
+        assertThat(shadowClient).isNotNull().isInstanceOf(ShadowGoogleApiClient.class);
+        assertThat(shadowClient.isConnectionCallbacksRegistered(mockConnCallbacks)).isTrue();
     }
 }

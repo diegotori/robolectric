@@ -12,7 +12,6 @@ import com.google.android.gms.common.GoogleApiAvailability;
 import com.google.android.gms.common.api.Api;
 import com.google.android.gms.common.api.GoogleApiClient;
 import com.google.android.gms.common.api.PendingResult;
-import com.google.android.gms.common.api.Result;
 import com.google.android.gms.common.api.Scope;
 import com.google.android.gms.common.api.Status;
 
@@ -34,6 +33,9 @@ import java.util.concurrent.TimeUnit;
 import static org.robolectric.internal.Shadow.directlyOn;
 import static com.google.android.gms.common.api.GoogleApiClient.ConnectionCallbacks;
 import static com.google.android.gms.common.api.GoogleApiClient.OnConnectionFailedListener;
+import static org.robolectric.internal.Shadow.invokeConstructor;
+import static org.robolectric.util.ReflectionHelpers.ClassParameter;
+
 /**
  * Shadow for {@link GoogleApiClient}.
  */
@@ -51,6 +53,12 @@ public class ShadowGoogleApiClient {
     private boolean isConnected = true;
     private boolean isConnecting = true;
     private HashMap<Api<?>, ConnectionResult> apiToConnectionResultMap = new HashMap<>();
+
+    public void __constructor__(){
+        connCallbacks = new HashSet<>();
+        failedListeners = new HashSet<>();
+        apiApiOptionsMap = new HashMap<>();
+    }
 
     @Implementation
     public Looper getLooper() {
@@ -250,14 +258,27 @@ public class ShadowGoogleApiClient {
             this.context = context;
             this.looper = context.getMainLooper();
             this.appId = context.getPackageName();
+            invokeConstructor(GoogleApiClient.Builder.class, realBuilder,
+                    ClassParameter.from(Context.class, context));
         }
 
         public void __constructor__(Context context,
                                     GoogleApiClient.ConnectionCallbacks connectedListener,
                                     GoogleApiClient.OnConnectionFailedListener connectionFailedListener){
-            this.__constructor__(context);
+            this.scopeUris = new HashSet<String>();
+            this.apiToOptionsMap = new HashMap<Api<?>, Api.ApiOptions>();
+            this.clientId = -1;
+            this.connCallbacks = new HashSet<GoogleApiClient.ConnectionCallbacks>();
+            this.failedListeners = new HashSet<GoogleApiClient.OnConnectionFailedListener>();
+            this.context = context;
+            this.looper = context.getMainLooper();
+            this.appId = context.getPackageName();
             this.connCallbacks.add(connectedListener);
             this.failedListeners.add(connectionFailedListener);
+            invokeConstructor(GoogleApiClient.Builder.class, realBuilder,
+                    ClassParameter.from(Context.class, context),
+                    ClassParameter.from(GoogleApiClient.ConnectionCallbacks.class, connectedListener),
+                    ClassParameter.from(GoogleApiClient.OnConnectionFailedListener.class, connectionFailedListener));
         }
 
         public Map<Api<?>, Api.ApiOptions> getApiMap() {
@@ -395,7 +416,7 @@ public class ShadowGoogleApiClient {
         public GoogleApiClient.Builder setGravityForPopups(int gravityForPopups) {
             this.gravityForPopups = gravityForPopups;
             directlyOn(realBuilder, GoogleApiClient.Builder.class, "setGravityForPopups",
-                    ReflectionHelpers.ClassParameter.from(Integer.class, gravityForPopups));
+                    ReflectionHelpers.ClassParameter.from(int.class, gravityForPopups));
             return realBuilder;
         }
 
@@ -408,20 +429,18 @@ public class ShadowGoogleApiClient {
             this.unresolvedConnectionFailedListener = unresolvedConnectionFailedListener;
             directlyOn(realBuilder, GoogleApiClient.Builder.class, "enableAutoManage",
                     ReflectionHelpers.ClassParameter.from(FragmentActivity.class, fragmentActivity),
-                    ReflectionHelpers.ClassParameter.from(Integer.class, clientId),
+                    ReflectionHelpers.ClassParameter.from(int.class, clientId),
                     ReflectionHelpers.ClassParameter.from(
                             GoogleApiClient.OnConnectionFailedListener.class,
                             unresolvedConnectionFailedListener));
             return realBuilder;
         }
 
-        @SuppressWarnings("unchecked")
         @Implementation
         public GoogleApiClient build(){
             final GoogleApiClient result = directlyOn(realBuilder,
                     GoogleApiClient.Builder.class,
-                    "build",
-                    ReflectionHelpers.ClassParameter.from(Context.class, context));
+                    "build");
             populateShadow(result);
             return result;
         }

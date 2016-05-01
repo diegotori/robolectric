@@ -1,4 +1,3 @@
-
 package org.robolectric.shadows;
 
 #if ($api >= 21)
@@ -7,21 +6,23 @@ import android.content.ComponentName;
 import android.content.Context;
 import android.net.Uri;
 import android.os.Bundle;
-import android.os.RemoteException;
-import android.os.ServiceManager;
 import android.telecom.PhoneAccount;
 import android.telecom.PhoneAccountHandle;
 import android.telecom.TelecomManager;
-import android.text.TextUtils;
-import android.util.Log;
-import com.android.internal.telecom.ITelecomService;
-import com.android.internal.telecom.ITelecomService.Stub;
-import java.util.ArrayList;
-import java.util.Collections;
-import java.util.List;
+
+import com.google.common.collect.ImmutableList;
 
 import org.robolectric.annotation.Implementation;
 import org.robolectric.annotation.Implements;
+import org.robolectric.annotation.RealObject;
+import org.robolectric.util.ReflectionHelpers;
+
+import java.util.HashSet;
+import java.util.Iterator;
+import java.util.LinkedHashMap;
+import java.util.LinkedList;
+import java.util.List;
+import java.util.Set;
 
 /**
  * Shadow for {@link android.telecom.TelecomManager}.
@@ -29,7 +30,14 @@ import org.robolectric.annotation.Implements;
 @Implements(value = TelecomManager.class)
 public class ShadowTelecomManager {
 
+  @RealObject
+  private TelecomManager realObject;
+
   private PhoneAccountHandle simCallManager;
+  private LinkedHashMap<PhoneAccountHandle, PhoneAccount> accounts = new LinkedHashMap();
+  private List<CallRecord> incomingCalls = new LinkedList<>();
+  private List<CallRecord> unknownCalls = new LinkedList<>();
+  private String defaultDialerPackageName;
 
   @Implementation
   public PhoneAccountHandle getDefaultOutgoingPhoneAccount(String uriScheme) {
@@ -62,8 +70,18 @@ public class ShadowTelecomManager {
 
   @Implementation
   public List<PhoneAccountHandle> getPhoneAccountsSupportingScheme(String uriScheme) {
-    return new ArrayList();
+    List<PhoneAccountHandle> result = new LinkedList<>();
+
+    for (PhoneAccountHandle handle : accounts.keySet()) {
+      PhoneAccount phoneAccount = accounts.get(handle);
+      if(phoneAccount.getSupportedUriSchemes().contains(uriScheme)) {
+        result.add(handle);
+      }
+    }
+    return result;
   }
+
+#if ($api >= 23)
 
   @Implementation
   public List<PhoneAccountHandle> getCallCapablePhoneAccounts() {
@@ -72,56 +90,86 @@ public class ShadowTelecomManager {
 
   @Implementation
   public List<PhoneAccountHandle> getCallCapablePhoneAccounts(boolean includeDisabledAccounts) {
-    return new ArrayList();
+    List<PhoneAccountHandle> result = new LinkedList<>();
+
+    for (PhoneAccountHandle handle : accounts.keySet()) {
+      PhoneAccount phoneAccount = accounts.get(handle);
+      if(!phoneAccount.isEnabled() && !includeDisabledAccounts) {
+        continue;
+      }
+      result.add(handle);
+    }
+    return result;
   }
+
+#end
 
   @Implementation
   public List<PhoneAccountHandle> getPhoneAccountsForPackage() {
-    return null;
+    Context context = ReflectionHelpers.getField(realObject, "mContext");
+
+    List<PhoneAccountHandle> results = new LinkedList<>();
+    for (PhoneAccountHandle handle : accounts.keySet()) {
+      if (handle.getComponentName().getPackageName().equals(context.getPackageName())) {
+        results.add(handle);
+      }
+    }
+    return results;
   }
 
   @Implementation
   public PhoneAccount getPhoneAccount(PhoneAccountHandle account) {
-    return null;
+    return accounts.get(account);
   }
 
   @Implementation
   public int getAllPhoneAccountsCount() {
-    return 0;
+    return accounts.size();
   }
-
 
   @Implementation
   public List<PhoneAccount> getAllPhoneAccounts() {
-    return Collections.EMPTY_LIST;
+    return ImmutableList.copyOf(accounts.values());
   }
 
   @Implementation
   public List<PhoneAccountHandle> getAllPhoneAccountHandles() {
-    return Collections.EMPTY_LIST;
+    return ImmutableList.copyOf(accounts.keySet());
   }
 
   @Implementation
   public void registerPhoneAccount(PhoneAccount account) {
+    accounts.put(account.getAccountHandle(), account);
   }
 
   @Implementation
   public void unregisterPhoneAccount(PhoneAccountHandle accountHandle) {
-  }
-
-  @Implementation
-  public void clearPhoneAccounts() {
-    this.clearAccounts();
+    accounts.remove(accountHandle);
   }
 
   /** @deprecated */
   @Implementation
   public void clearAccounts() {
+    accounts.clear();
   }
 
+
+#if ($api >= 22)
   @Implementation
   public void clearAccountsForPackage(String packageName) {
+    Set<PhoneAccountHandle> phoneAccountHandlesInPackage = new HashSet<>();
+
+    for (PhoneAccountHandle handle : accounts.keySet()) {
+      if (handle.getComponentName().getPackageName().equals(packageName)) {
+        phoneAccountHandlesInPackage.add(handle);
+      }
+    }
+
+    for (PhoneAccountHandle handle : phoneAccountHandlesInPackage) {
+      accounts.remove(handle);
+    }
   }
+#end
 
   /** @deprecated */
   @Implementation
@@ -129,15 +177,18 @@ public class ShadowTelecomManager {
     return null;
   }
 
+#if ($api >= 23)
   @Implementation
   public String getDefaultDialerPackage() {
-    return null;
+    return defaultDialerPackageName;
   }
 
   @Implementation
   public boolean setDefaultDialer(String packageName) {
-    return false;
+    this.defaultDialerPackageName = packageName;
+    return true;
   }
+#end
 
   @Implementation
   public String getSystemDialerPackage() {
@@ -199,10 +250,20 @@ public class ShadowTelecomManager {
 
   @Implementation
   public void addNewIncomingCall(PhoneAccountHandle phoneAccount, Bundle extras) {
+    incomingCalls.add(new CallRecord(phoneAccount, extras));
+  }
+
+  public List<CallRecord> getAllIncomingCalls() {
+    return incomingCalls;
   }
 
   @Implementation
   public void addNewUnknownCall(PhoneAccountHandle phoneAccount, Bundle extras) {
+    unknownCalls.add(new CallRecord(phoneAccount, extras));
+  }
+
+  public List<CallRecord> getAllUnknownCalls() {
+    return unknownCalls;
   }
 
   @Implementation
@@ -239,6 +300,17 @@ public class ShadowTelecomManager {
   public void setSimCallManager(PhoneAccountHandle simCallManager) {
     this.simCallManager = simCallManager;
   }
+
+  public class CallRecord {
+    public final PhoneAccountHandle phoneAccount;
+    public final Bundle bundle;
+
+    public CallRecord(PhoneAccountHandle phoneAccount, Bundle extras) {
+      this.phoneAccount = phoneAccount;
+      this.bundle = extras;
+    }
+  }
+
 }
 #else
 public class ShadowTelecomManager {

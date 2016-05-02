@@ -334,7 +334,7 @@ public class ShadowGoogleApiClient {
         }
 
         @Implementation
-        public GoogleApiClient.Builder addApi(final Api<?> api){
+        public GoogleApiClient.Builder addApi(final Api<? extends Api.ApiOptions.NotRequiredOptions> api){
             this.apiToOptionsMap.put(api, null);
             addScopeUrisFromApi(api.zzoP().zzo(null));
             directlyOn(realBuilder, GoogleApiClient.Builder.class, "addApi",

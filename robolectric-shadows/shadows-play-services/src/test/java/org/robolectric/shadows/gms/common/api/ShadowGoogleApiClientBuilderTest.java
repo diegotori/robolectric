@@ -104,7 +104,7 @@ public class ShadowGoogleApiClientBuilderTest {
         verify(mockContext, times(2)).getMainLooper();
         verify(mockContext, times(2)).getPackageName();
         assertThat(shadowBuilder.getContext()).isNotNull().isEqualTo(mockContext);
-        assertThat(shadowBuilder.looper).isNotNull().isEqualTo(mockLooper);
+        assertThat(shadowBuilder.getLooper()).isNotNull().isEqualTo(mockLooper);
         assertThat(shadowBuilder.getAppId()).isNotNull().isNotEmpty().isEqualTo(MOCK_APP_ID);
     }
 
@@ -120,7 +120,7 @@ public class ShadowGoogleApiClientBuilderTest {
 
         verify(mockContext, times(3)).getMainLooper();
         verify(mockContext, times(3)).getPackageName();
-        assertThat(shadowBuilder.looper).isNotNull().isEqualTo(mockLooper);
+        assertThat(shadowBuilder.getLooper()).isNotNull().isEqualTo(mockLooper);
         assertThat(shadowBuilder.getAppId()).isNotNull().isNotEmpty().isEqualTo(MOCK_APP_ID);
         assertThat(shadowBuilder.getConnCallbacks()).isNotEmpty();
         assertThat(shadowBuilder.getConnCallbacks().contains(mockConnCallbacks)).isTrue();

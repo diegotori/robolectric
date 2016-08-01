@@ -10,6 +10,7 @@ import com.google.android.gms.common.api.Api;
 import com.google.android.gms.common.api.GoogleApiClient;
 import com.google.android.gms.common.api.Scope;
 
+import com.google.android.gms.common.internal.zzf;
 import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
@@ -31,9 +32,11 @@ import static org.mockito.Mockito.*;
  * Created by diegotori on 2/14/16.
  */
 @RunWith(RobolectricTestRunner.class)
-@Config(manifest = Config.NONE)
+@Config(manifest = Config.NONE, shadows = {ShadowGoogleApiClient.ShadowBuilder.class, ShadowGoogleApiClient.class})
 public class ShadowGoogleApiClientBuilderTest {
     private static final String MOCK_APP_ID = "com.foo.app.id";
+
+    private static final String MOCK_API_NAME = "some_api_name";
 
     @Mock
     private Context mockContext;
@@ -51,25 +54,26 @@ public class ShadowGoogleApiClientBuilderTest {
     private GoogleApiClient.OnConnectionFailedListener mockConnFailedListener;
 
     @Mock
-    private Api<Api.ApiOptions.HasOptions> mockApi;
-
-    @Mock
     private Api.ApiOptions.HasOptions mockApiOptions;
 
     @Mock
+    private Api.zza<Api.zzb, Api.ApiOptions.NotRequiredOptions> mockNonOptsClientBuilder;
+
+    @Mock
+    private Api.zza<Api.zzb, Api.ApiOptions.HasOptions> mockClientBuilder;
+
+    private Api.zzc<Api.zzb> mockClientKey;
+
     private Api<Api.ApiOptions.NotRequiredOptions> mockNonOptsApi;
 
-    @Mock
     private Scope mockApiScope;
-
-    @Mock
-    private GoogleApiClient mockGoogleApiClient;
 
     private Context roboContext;
 
     @Before
     public void setUp(){
         MockitoAnnotations.initMocks(this);
+        mockClientKey = new Api.zzc<>();
         roboContext = RuntimeEnvironment.application;
         when(mockHandler.getLooper()).thenReturn(mockLooper);
     }
@@ -77,6 +81,9 @@ public class ShadowGoogleApiClientBuilderTest {
     @After
     public void tearDown(){
         roboContext = null;
+        mockApiScope = null;
+        mockClientKey = null;
+        mockNonOptsApi = null;
     }
 
     @Test
@@ -97,7 +104,7 @@ public class ShadowGoogleApiClientBuilderTest {
         verify(mockContext, times(2)).getMainLooper();
         verify(mockContext, times(2)).getPackageName();
         assertThat(shadowBuilder.getContext()).isNotNull().isEqualTo(mockContext);
-        assertThat(shadowBuilder.looper).isNotNull().isEqualTo(mockLooper);
+        assertThat(shadowBuilder.getLooper()).isNotNull().isEqualTo(mockLooper);
         assertThat(shadowBuilder.getAppId()).isNotNull().isNotEmpty().isEqualTo(MOCK_APP_ID);
     }
 
@@ -113,7 +120,7 @@ public class ShadowGoogleApiClientBuilderTest {
 
         verify(mockContext, times(3)).getMainLooper();
         verify(mockContext, times(3)).getPackageName();
-        assertThat(shadowBuilder.looper).isNotNull().isEqualTo(mockLooper);
+        assertThat(shadowBuilder.getLooper()).isNotNull().isEqualTo(mockLooper);
         assertThat(shadowBuilder.getAppId()).isNotNull().isNotEmpty().isEqualTo(MOCK_APP_ID);
         assertThat(shadowBuilder.getConnCallbacks()).isNotEmpty();
         assertThat(shadowBuilder.getConnCallbacks().contains(mockConnCallbacks)).isTrue();
@@ -165,13 +172,12 @@ public class ShadowGoogleApiClientBuilderTest {
     @Test
     public void addScope(){
         final String mockScopeUri = "com.foo.scope.uri";
-        when(mockApiScope.zzpb()).thenReturn(mockScopeUri);
+        mockApiScope = new Scope(mockScopeUri);
 
         final ShadowGoogleApiClient.ShadowBuilder shadowBuilder
                 = Shadows.shadowOf(new GoogleApiClient.Builder(roboContext)
                 .addScope(mockApiScope));
 
-        verify(mockApiScope).zzpb();
         assertThat(shadowBuilder.getScopeUris().contains(mockScopeUri)).isTrue();
     }
 
@@ -207,24 +213,20 @@ public class ShadowGoogleApiClientBuilderTest {
         assertThat(shadowBuilder.getViewForPopups()).isNotNull().isEqualTo(mockView);
     }
 
-    @SuppressWarnings("unchecked")
     @Test
     public void addApi__WithOptions(){
         final String mockScopeUri = "foobar";
-        when(mockApiScope.zzpb()).thenReturn(mockScopeUri);
+        mockApiScope = new Scope(mockScopeUri);
         final List<Scope> mockApiScopes = new ArrayList<>();
         mockApiScopes.add(mockApiScope);
-        final Api.zza mockZza = mock(Api.zza.class);
-        when(mockApi.zzoP()).thenReturn(mockZza);
-        when(mockZza.zzo(mockApiOptions)).thenReturn(mockApiScopes);
+        final Api<Api.ApiOptions.HasOptions> mockApi = new Api<>(MOCK_API_NAME, mockClientBuilder, mockClientKey);
+        when(mockClientBuilder.zzo(mockApiOptions)).thenReturn(mockApiScopes);
 
         final ShadowGoogleApiClient.ShadowBuilder shadowBuilder
                 = Shadows.shadowOf(new GoogleApiClient.Builder(mockContext)
                 .addApi(mockApi, mockApiOptions));
 
-        verify(mockZza, times(2)).zzo(mockApiOptions);
-        verify(mockApi, times(2)).zzoP();
-        verify(mockApiScope).zzpb();
+        verify(mockClientBuilder, times(2)).zzo(mockApiOptions);
         assertThat(shadowBuilder.getScopeUris()).isNotEmpty();
         assertThat(shadowBuilder.getScopeUris().contains(mockScopeUri)).isTrue();
         assertThat(shadowBuilder.getApiMap()).isNotEmpty();
@@ -232,24 +234,21 @@ public class ShadowGoogleApiClientBuilderTest {
         assertThat(shadowBuilder.getApiMap().containsValue(mockApiOptions)).isTrue();
     }
 
-    @SuppressWarnings("unchecked")
     @Test
     public void addApi(){
         final String mockScopeUri = "foobar";
-        when(mockApiScope.zzpb()).thenReturn(mockScopeUri);
+        mockApiScope = new Scope(mockScopeUri);
         final List<Scope> mockApiScopes = new ArrayList<>();
         mockApiScopes.add(mockApiScope);
-        final Api.zza mockZza = mock(Api.zza.class);
-        when(mockNonOptsApi.zzoP()).thenReturn(mockZza);
-        when(mockZza.zzo(null)).thenReturn(mockApiScopes);
+        mockNonOptsApi = new Api<>(MOCK_API_NAME, mockNonOptsClientBuilder,
+                mockClientKey);
+        when(mockNonOptsClientBuilder.zzo(null)).thenReturn(mockApiScopes);
 
         final ShadowGoogleApiClient.ShadowBuilder shadowBuilder
                 = Shadows.shadowOf(new GoogleApiClient.Builder(mockContext)
                 .addApi(mockNonOptsApi));
 
-        verify(mockZza, times(2)).zzo(null);
-        verify(mockNonOptsApi, times(2)).zzoP();
-        verify(mockApiScope).zzpb();
+        verify(mockNonOptsClientBuilder, times(2)).zzo(null);
         assertThat(shadowBuilder.getScopeUris()).isNotEmpty();
         assertThat(shadowBuilder.getScopeUris().contains(mockScopeUri)).isTrue();
         assertThat(shadowBuilder.getApiMap().containsKey(mockNonOptsApi)).isTrue();
@@ -276,29 +275,42 @@ public class ShadowGoogleApiClientBuilderTest {
                 .isEqualTo(mockFragActivity);
     }
 
-    @SuppressWarnings("unchecked")
     @Test
     public void build(){
-        final String mockApiName = "some API name";
+        final Api.zzb mockZzb = mock(Api.zzb.class);
         final String mockScopeUri = "some Scope URI";
-        final Api.zza mockClientBuilder = mock(Api.zza.class);
-        final Api.zze mockClientKey = mock(Api.zze.class);
+        mockApiScope = new Scope(mockScopeUri);
         final List<Scope> mockApiScopes = new ArrayList<>();
         mockApiScopes.add(mockApiScope);
-        when(mockClientKey.getPriority()).thenReturn(Integer.MAX_VALUE);
-        when(mockNonOptsApi.zzoP()).thenReturn(mockClientBuilder);
-        when(mockNonOptsApi.zzoQ()).thenReturn(mockClientKey);
-        when(mockNonOptsApi.zzoS()).thenReturn(true);
-        when(mockNonOptsApi.getName()).thenReturn(mockApiName);
-        when(mockApiScope.zzpb()).thenReturn(mockScopeUri);
-        when(mockClientBuilder.zzo(null)).thenReturn(mockApiScopes);
+        final Api<Api.ApiOptions.NotRequiredOptions> mockApi = new Api<>(MOCK_API_NAME,
+                mockNonOptsClientBuilder,
+                mockClientKey);
+        when(mockContext.getMainLooper()).thenReturn(mockLooper);
+        when(mockContext.getPackageName()).thenReturn(MOCK_APP_ID);
+        when(mockNonOptsClientBuilder.zzo(any(Api.ApiOptions.NotRequiredOptions.class)))
+                .thenReturn(mockApiScopes);
+        when(mockNonOptsClientBuilder.getPriority()).thenReturn(1);
+        when(mockNonOptsClientBuilder.zza(eq(mockContext), eq(mockLooper), any(zzf.class),
+                any(Api.ApiOptions.NotRequiredOptions.class),
+                any(GoogleApiClient.ConnectionCallbacks.class),
+                any(GoogleApiClient.OnConnectionFailedListener.class)))
+                .thenReturn(mockZzb);
+//        when(mockZzb.isConnected()).thenReturn(true);
 
-        final GoogleApiClient client = new GoogleApiClient.Builder(roboContext)
+        final GoogleApiClient client = new GoogleApiClient.Builder(mockContext)
                 .addConnectionCallbacks(mockConnCallbacks)
                 .addOnConnectionFailedListener(mockConnFailedListener)
-                .addApi(mockNonOptsApi)
+                .addApi(mockApi)
                 .build();
 
+        verify(mockNonOptsClientBuilder, times(2)).zzo(any(Api.ApiOptions.NotRequiredOptions.class));
+        verify(mockNonOptsClientBuilder).getPriority();
+        verify(mockNonOptsClientBuilder).zza(eq(mockContext), eq(mockLooper), any(zzf.class),
+                any(Api.ApiOptions.NotRequiredOptions.class),
+                any(GoogleApiClient.ConnectionCallbacks.class),
+                any(GoogleApiClient.OnConnectionFailedListener.class));
+        verify(mockContext, atLeastOnce()).getMainLooper();
+        verify(mockContext, atLeastOnce()).getPackageName();
         final ShadowGoogleApiClient shadowClient = Shadows.shadowOf(client);
         assertThat(shadowClient).isNotNull().isInstanceOf(ShadowGoogleApiClient.class);
         assertThat(shadowClient.isConnectionCallbacksRegistered(mockConnCallbacks)).isTrue();

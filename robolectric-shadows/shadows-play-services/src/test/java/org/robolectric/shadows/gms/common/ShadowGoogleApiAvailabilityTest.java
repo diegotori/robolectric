@@ -24,11 +24,7 @@ import static org.mockito.Mockito.mock;
  * Created by diegotori on 2/14/16.
  */
 @RunWith(RobolectricTestRunner.class)
-<<<<<<< HEAD
-@Config(manifest = Config.NONE)
-=======
 @Config(manifest = Config.NONE, shadows = {ShadowGoogleApiAvailability.class})
->>>>>>> master
 public class ShadowGoogleApiAvailabilityTest {
 
     private Context roboContext;

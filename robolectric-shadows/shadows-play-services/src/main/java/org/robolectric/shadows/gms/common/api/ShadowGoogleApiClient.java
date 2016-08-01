@@ -187,7 +187,7 @@ public class ShadowGoogleApiClient {
         this.failedListeners.remove(onConnectionFailedListener);
     }
 
-    public void addConnectionResultForApi(final Api<?> api, final ConnectionResult result){
+    public void setConnectionResultForApi(final Api<?> api, final ConnectionResult result){
         apiToConnectionResultMap.put(api, result);
     }
 
@@ -238,7 +238,7 @@ public class ShadowGoogleApiClient {
         private View viewForPopups;
         private int gravityForPopups;
         private FragmentActivity fragmentActivity;
-        public Looper looper;
+        private Looper looper;
         private Context context;
         private Set<String> scopeUris;
         private Set<GoogleApiClient.ConnectionCallbacks> connCallbacks;
@@ -334,7 +334,7 @@ public class ShadowGoogleApiClient {
         }
 
         @Implementation
-        public GoogleApiClient.Builder addApi(final Api<?> api){
+        public GoogleApiClient.Builder addApi(final Api<? extends Api.ApiOptions.NotRequiredOptions> api){
             this.apiToOptionsMap.put(api, null);
             addScopeUrisFromApi(api.zzoP().zzo(null));
             directlyOn(realBuilder, GoogleApiClient.Builder.class, "addApi",

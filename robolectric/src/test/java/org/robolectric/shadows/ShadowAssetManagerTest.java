@@ -3,6 +3,7 @@ package org.robolectric.shadows;
 import android.app.Activity;
 import android.content.res.AssetFileDescriptor;
 import android.content.res.AssetManager;
+
 import org.junit.Before;
 import org.junit.Rule;
 import org.junit.Test;
@@ -10,8 +11,8 @@ import org.junit.rules.ExpectedException;
 import org.junit.runner.RunWith;
 import org.robolectric.Robolectric;
 import org.robolectric.RuntimeEnvironment;
-import org.robolectric.Shadows;
 import org.robolectric.TestRunners;
+import org.robolectric.annotation.Config;
 import org.robolectric.util.Strings;
 
 import java.io.ByteArrayInputStream;
@@ -21,7 +22,10 @@ import java.util.Arrays;
 import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.junit.Assert.*;
+import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertFalse;
+import static org.junit.Assert.assertNotNull;
+import static org.junit.Assert.assertTrue;
 import static org.robolectric.util.TestUtil.joinPath;
 
 @RunWith(TestRunners.MultiApiWithDefaults.class)
@@ -124,9 +128,8 @@ public class ShadowAssetManagerTest {
   }
 
   @Test
+  @Config(qualifiers = "mdpi")
   public void openNonAssetShouldOpenCorrectAssetBasedOnQualifierMdpi() throws IOException {
-    Shadows.shadowOf(assetManager).setQualifiers("mdpi");
-
     InputStream inputStream = assetManager.openNonAsset(0, "./res/drawable/robolectric.png", 0);
 
     ByteArrayInputStream byteArrayInputStream = (ByteArrayInputStream) inputStream;
@@ -134,12 +137,12 @@ public class ShadowAssetManagerTest {
   }
 
   @Test
+  @Config(qualifiers = "hdpi")
   public void openNonAssetShouldOpenCorrectAssetBasedOnQualifierHdpi() throws IOException {
-    Shadows.shadowOf(assetManager).setQualifiers("hdpi");
-
     InputStream inputStream = assetManager.openNonAsset(0, "./res/drawable/robolectric.png", 0);
 
     ByteArrayInputStream byteArrayInputStream = (ByteArrayInputStream) inputStream;
     assertThat(byteArrayInputStream.available()).isEqualTo(23447);
   }
+
 }

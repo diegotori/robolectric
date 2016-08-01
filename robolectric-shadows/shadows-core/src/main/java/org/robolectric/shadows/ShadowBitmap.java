@@ -2,6 +2,7 @@ package org.robolectric.shadows;
 
 import android.graphics.Bitmap;
 import android.graphics.Matrix;
+import android.os.Parcel;
 import android.util.DisplayMetrics;
 
 import org.robolectric.annotation.Implementation;
@@ -10,9 +11,12 @@ import org.robolectric.annotation.RealObject;
 import org.robolectric.res.ResName;
 import org.robolectric.util.ReflectionHelpers;
 
+import java.io.FileDescriptor;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
+import java.nio.Buffer;
+import java.nio.ByteBuffer;
 
 import static org.robolectric.Shadows.shadowOf;
 
@@ -22,12 +26,16 @@ import static org.robolectric.Shadows.shadowOf;
 @SuppressWarnings({"UnusedDeclaration"})
 @Implements(Bitmap.class)
 public class ShadowBitmap {
+  /** Number of bytes used internally to represent each pixel (in the {@link #colors} array) */
+  private static final int INTERNAL_BYTES_PER_PIXEL = 4;
+
   @RealObject
   private Bitmap realBitmap;
 
   int createdFromResId = -1;
   String createdFromPath;
   InputStream createdFromStream;
+  FileDescriptor createdFromFileDescriptor;
   byte[] createdFromBytes;
   private Bitmap createdFromBitmap;
   private int createdFromX = -1;
@@ -500,6 +508,72 @@ public class ShadowBitmap {
 
   }
 
+  @Implementation
+  public void writeToParcel(Parcel p, int flags) {
+    p.writeInt(width);
+    p.writeInt(height);
+    p.writeSerializable(config);
+    p.writeIntArray(colors);
+  }
+
+  @Implementation
+  public static Bitmap nativeCreateFromParcel(Parcel p) {
+    int parceledWidth = p.readInt();
+    int parceledHeight = p.readInt();
+    Bitmap.Config parceledConfig = (Bitmap.Config) p.readSerializable();
+
+    int[] parceledColors = new int[parceledHeight * parceledWidth];
+    p.readIntArray(parceledColors);
+
+    return createBitmap(parceledColors, parceledWidth, parceledHeight, parceledConfig);
+  }
+
+  @Implementation
+  public void copyPixelsFromBuffer(Buffer dst) {
+    if (isRecycled()) {
+      throw new IllegalStateException("Can't call copyPixelsFromBuffer() on a recycled bitmap");
+    }
+
+    // See the related comment in #copyPixelsToBuffer(Buffer).
+    if (getBytesPerPixel(config) != INTERNAL_BYTES_PER_PIXEL) {
+      throw new RuntimeException("Not implemented: only Bitmaps with " + INTERNAL_BYTES_PER_PIXEL
+              + " bytes per pixel are supported");
+    }
+    if (!(dst instanceof ByteBuffer)) {
+      throw new RuntimeException("Not implemented: unsupported Buffer subclass");
+    }
+
+    ByteBuffer byteBuffer = (ByteBuffer) dst;
+    if (byteBuffer.remaining() < colors.length * INTERNAL_BYTES_PER_PIXEL) {
+      throw new RuntimeException("Buffer not large enough for pixels");
+    }
+
+    for (int i = 0; i < colors.length; i++) {
+      colors[i] = byteBuffer.getInt();
+    }
+  }
+
+  @Implementation
+  public void copyPixelsToBuffer(Buffer dst) {
+    // Ensure that the Bitmap uses 4 bytes per pixel, since we always use 4 bytes per pixels
+    // internally. Clients of this API probably expect that the buffer size must be >=
+    // getByteCount(), but if we don't enforce this restriction then for RGB_4444 and other
+    // configs that value would be smaller then the buffer size we actually need.
+    if (getBytesPerPixel(config) != INTERNAL_BYTES_PER_PIXEL) {
+      throw new RuntimeException("Not implemented: only Bitmaps with " + INTERNAL_BYTES_PER_PIXEL
+              + " bytes per pixel are supported");
+    }
+
+    if (!(dst instanceof ByteBuffer)) {
+      throw new RuntimeException("Not implemented: unsupported Buffer subclass");
+    }
+
+    ByteBuffer byteBuffer = (ByteBuffer) dst;
+    for (int color : colors) {
+      byteBuffer.putInt(color);
+    }
+  }
+
   @Override
   public String toString() {
     return "Bitmap{description='" + description + '\'' + ", width=" + width + ", height=" + height + '}';
@@ -526,9 +600,9 @@ public class ShadowBitmap {
     }
   }
 
-  public void setCreatedFromResId(int resId, ResName resName) {
+  public void setCreatedFromResId(int resId, String description) {
     this.createdFromResId = resId;
-    appendDescription(" for resource:" + resName.getFullyQualifiedName());
+    appendDescription(" for resource:" + description);
   }
 
   private void internalCheckPixelAccess(int x, int y) {

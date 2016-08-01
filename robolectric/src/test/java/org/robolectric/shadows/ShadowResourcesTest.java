@@ -1,26 +1,51 @@
 package org.robolectric.shadows;
 
 import android.app.Activity;
-import android.content.res.*;
-import android.graphics.drawable.*;
+import android.content.res.ColorStateList;
+import android.content.res.Configuration;
+import android.content.res.Resources;
+import android.content.res.TypedArray;
+import android.content.res.XmlResourceParser;
+import android.graphics.drawable.AnimationDrawable;
+import android.graphics.drawable.BitmapDrawable;
+import android.graphics.drawable.ColorDrawable;
+import android.graphics.drawable.Drawable;
+import android.graphics.drawable.NinePatchDrawable;
 import android.os.Build;
+import android.util.AttributeSet;
 import android.util.DisplayMetrics;
 import android.util.TypedValue;
+
+import com.google.common.collect.ImmutableMap;
 import org.assertj.core.data.Offset;
+import org.jetbrains.annotations.NotNull;
 import org.junit.Before;
 import org.junit.Test;
 import org.junit.runner.RunWith;
 import org.robolectric.R;
+import org.robolectric.Robolectric;
 import org.robolectric.RuntimeEnvironment;
 import org.robolectric.Shadows;
 import org.robolectric.TestRunners;
 import org.robolectric.annotation.Config;
+import org.robolectric.res.AttrData;
+import org.robolectric.res.DrawableNode;
+import org.robolectric.res.Plural;
+import org.robolectric.res.ResName;
+import org.robolectric.res.ResType;
+import org.robolectric.res.ResourceExtractor;
+import org.robolectric.res.ResourceIndex;
+import org.robolectric.res.ResourceLoader;
+import org.robolectric.res.ResourcePath;
+import org.robolectric.res.TypedResource;
+import org.robolectric.res.builder.XmlBlock;
 import org.robolectric.util.ReflectionHelpers;
 import org.robolectric.util.TestUtil;
 import org.xmlpull.v1.XmlPullParser;
 
 import java.io.File;
 import java.io.InputStream;
+import java.util.Map;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.robolectric.Shadows.shadowOf;
@@ -33,7 +58,7 @@ public class ShadowResourcesTest {
 
   @Before
   public void setup() throws Exception {
-    resources = new Activity().getResources();
+    resources = RuntimeEnvironment.application.getResources();
   }
 
   @Test
@@ -276,7 +301,7 @@ public class ShadowResourcesTest {
 
   @Test
   public void testGetNinePatchDrawable() {
-    assertThat(ShadowApplication.getInstance().getResources().getDrawable(R.drawable.nine_patch_drawable)).isInstanceOf(NinePatchDrawable.class);
+    assertThat(resources.getDrawable(R.drawable.nine_patch_drawable)).isInstanceOf(NinePatchDrawable.class);
   }
 
   @Test(expected = Resources.NotFoundException.class)
@@ -306,21 +331,19 @@ public class ShadowResourcesTest {
 
   @Test
   public void testDensity() {
-    Activity activity = new Activity();
-    assertThat(activity.getResources().getDisplayMetrics().density).isEqualTo(1f);
+    assertThat(RuntimeEnvironment.application.getResources().getDisplayMetrics().density).isEqualTo(1f);
 
-    shadowOf(activity.getResources()).setDensity(1.5f);
+    shadowOf(RuntimeEnvironment.application.getResources()).setDensity(1.5f);
+    assertThat(RuntimeEnvironment.application.getResources().getDisplayMetrics().density).isEqualTo(1.5f);
+
+    Activity activity = Robolectric.setupActivity(Activity.class);
     assertThat(activity.getResources().getDisplayMetrics().density).isEqualTo(1.5f);
-
-    Activity anotherActivity = new Activity();
-    assertThat(anotherActivity.getResources().getDisplayMetrics().density).isEqualTo(1.5f);
   }
 
   @Test
   public void displayMetricsShouldNotHaveLotsOfZeros() throws Exception {
-    Activity activity = new Activity();
-    assertThat(activity.getResources().getDisplayMetrics().heightPixels).isEqualTo(800);
-    assertThat(activity.getResources().getDisplayMetrics().widthPixels).isEqualTo(480);
+    assertThat(RuntimeEnvironment.application.getResources().getDisplayMetrics().heightPixels).isEqualTo(800);
+    assertThat(RuntimeEnvironment.application.getResources().getDisplayMetrics().widthPixels).isEqualTo(480);
   }
 
   @Test
@@ -335,9 +358,8 @@ public class ShadowResourcesTest {
 
   @Test
   public void applicationResourcesShouldHaveBothSystemAndLocalValues() throws Exception {
-    Activity activity = new Activity();
-    assertThat(activity.getResources().getString(android.R.string.copy)).isEqualTo("Copy");
-    assertThat(activity.getResources().getString(R.string.copy)).isEqualTo("Local Copy");
+    assertThat(RuntimeEnvironment.application.getResources().getString(android.R.string.copy)).isEqualTo("Copy");
+    assertThat(RuntimeEnvironment.application.getResources().getString(R.string.copy)).isEqualTo("Local Copy");
   }
 
   @Test
@@ -470,9 +492,47 @@ public class ShadowResourcesTest {
     assertThat(value.type).isGreaterThanOrEqualTo(TypedValue.TYPE_FIRST_COLOR_INT).isLessThanOrEqualTo(TypedValue.TYPE_LAST_INT);
   }
 
+  public static final class Lollipop_R_snippet {
+    public static final class attr {
+      public static final int viewportHeight = 16843779;
+      public static final int viewportWidth = 16843778;
+    }
+  }
+
+  @Test
+  public void obtainStyledAttributesShouldCheckXmlFirst() throws Exception {
+
+    // This simulates a ResourceLoader built from a 21+ SDK as viewportHeight / viewportWidth were introduced in API 21
+    // but the public ID values they are assigned clash with private com.android.internal.R values on older SDKs. This
+    // test ensures that even on older SDKs, on calls to obtainStyledAttributes() Robolectric will first check for matching
+    // resource ID values in the AttributeSet before checking the theme.
+    Map<String, AttrData> attributesTypes = ImmutableMap.<String, AttrData>builder()
+            .put("viewportWidth", new AttrData("viewportWidth", "float", null))
+            .put("viewportHeight", new AttrData("viewportHeight", "float", null))
+            .build();
+    ResourceLoader fakeResourceLoader = new FakeResourceLoader(attributesTypes,
+            new ResourceExtractor(new ResourcePath("android", null, null, Lollipop_R_snippet.class)));
+
+
+    RuntimeEnvironment.setAppResourceLoader(fakeResourceLoader);
+
+    AttributeSet attributes = Robolectric.buildAttributeSet()
+        .addAttribute(android.R.attr.viewportWidth, "12.0")
+        .addAttribute(android.R.attr.viewportHeight, "24.0")
+        .build();
+
+    TypedArray typedArray = RuntimeEnvironment.application.getTheme().obtainStyledAttributes(attributes, new int[] {
+            Lollipop_R_snippet.attr.viewportWidth,
+            Lollipop_R_snippet.attr.viewportHeight
+    }, 0, 0);
+    assertThat(typedArray.getFloat(0, 0)).isEqualTo(12.0f);
+    assertThat(typedArray.getFloat(1, 0)).isEqualTo(24.0f);
+    typedArray.recycle();
+  }
+
   @Test
   public void subClassInitializedOK() {
-    SubClassResources subClassResources = new SubClassResources(ShadowApplication.getInstance().getResources());
+    SubClassResources subClassResources = new SubClassResources(RuntimeEnvironment.application.getResources());
     assertThat(subClassResources.openRawResource(R.raw.raw_resource)).isNotNull();
   }
 
@@ -558,6 +618,51 @@ public class ShadowResourcesTest {
   private static class SubClassResources extends Resources {
     public SubClassResources(Resources res) {
       super(res.getAssets(), res.getDisplayMetrics(), res.getConfiguration());
+    }
+  }
+
+  private static class FakeResourceLoader extends ResourceLoader {
+    private final Map<String, AttrData> attributesTypes;
+    private final ResourceIndex resourceIndex;
+
+    public FakeResourceLoader(Map<String, AttrData> attributesTypes, ResourceIndex resourceIndex) {
+      this.attributesTypes = attributesTypes;
+      this.resourceIndex = resourceIndex;
+    }
+
+    @Override
+    public TypedResource getValue(@NotNull ResName resName, String qualifiers) {
+      return new TypedResource<>(attributesTypes.get(resName.name), ResType.FLOAT);
+    }
+
+    @Override
+    public Plural getPlural(ResName resName, int quantity, String qualifiers) {
+      return null;
+    }
+
+    @Override
+    public XmlBlock getXml(ResName resName, String qualifiers) {
+      return null;
+    }
+
+    @Override
+    public DrawableNode getDrawableNode(ResName resName, String qualifiers) {
+      return null;
+    }
+
+    @Override
+    public InputStream getRawValue(ResName resName) {
+      return null;
+    }
+
+    @Override
+    public ResourceIndex getResourceIndex() {
+      return resourceIndex;
+    }
+
+    @Override
+    public boolean providesFor(String namespace) {
+      return false;
     }
   }
 }

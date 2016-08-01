@@ -1,19 +1,18 @@
 package org.robolectric.res;
 
+import java.util.Arrays;
+
 public class ResourcePath {
-  public final Class<?> rClass;
   public final String packageName;
   public final FsFile resourceBase;
   public final FsFile assetsDir;
-  public final FsFile rawDir;
+  public Class<?>[] rClasses;
 
-  public ResourcePath(Class<?> rClass, String packageName, FsFile resourceBase, FsFile assetsDir) {
-    this.rClass = rClass;
+  public ResourcePath(String packageName, FsFile resourceBase, FsFile assetsDir, Class<?>... rClasses) {
     this.packageName = packageName;
     this.resourceBase = resourceBase;
     this.assetsDir = assetsDir;
-    FsFile rawDir = resourceBase.join("raw");
-    this.rawDir = rawDir.exists() ? rawDir : null;
+    this.rClasses = rClasses;
   }
 
   public String getPackageName() {
@@ -28,28 +27,24 @@ public class ResourcePath {
   @Override
   public boolean equals(Object o) {
     if (this == o) return true;
-    if (!(o instanceof ResourcePath)) return false;
+    if (o == null || getClass() != o.getClass()) return false;
 
     ResourcePath that = (ResourcePath) o;
 
-    if (!assetsDir.equals(that.assetsDir)) return false;
-    if (!packageName.equals(that.packageName)) return false;
-    if (!(rClass == null ? that.rClass == null : rClass.equals(that.rClass))) return false;
-    if (!(rawDir == null ? that.rawDir == null : rawDir.equals(that.rawDir))) return false;
-    if (!resourceBase.equals(that.resourceBase)) return false;
+    if (packageName != null ? !packageName.equals(that.packageName) : that.packageName != null) return false;
+    if (resourceBase != null ? !resourceBase.equals(that.resourceBase) : that.resourceBase != null) return false;
+    if (assetsDir != null ? !assetsDir.equals(that.assetsDir) : that.assetsDir != null) return false;
+    // Probably incorrect - comparing Object[] arrays with Arrays.equals
+    return Arrays.equals(rClasses, that.rClasses);
 
-    return true;
   }
 
   @Override
   public int hashCode() {
-    int result = rClass != null ? rClass.hashCode() : 0;
-    result = 31 * result + packageName.hashCode();
-    result = 31 * result + resourceBase.hashCode();
-    result = 31 * result + assetsDir.hashCode();
-    if (rawDir != null) {
-      result = 31 * result + rawDir.hashCode();
-    }
+    int result = packageName != null ? packageName.hashCode() : 0;
+    result = 31 * result + (resourceBase != null ? resourceBase.hashCode() : 0);
+    result = 31 * result + (assetsDir != null ? assetsDir.hashCode() : 0);
+    result = 31 * result + Arrays.hashCode(rClasses);
     return result;
   }
 }

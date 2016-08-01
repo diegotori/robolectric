@@ -28,37 +28,44 @@ public class ActivityController<T extends Activity> extends ComponentController<
   private final ShadowsAdapter shadowsAdapter;
   private final ShadowActivityAdapter shadowReference;
 
-  public static <T extends Activity> ActivityController<T> of(ShadowsAdapter shadowsAdapter, Class<T> activityClass) {
-    return new ActivityController<>(shadowsAdapter, ReflectionHelpers.callConstructor(activityClass));
+  public static <T extends Activity> ActivityController<T> of(ShadowsAdapter shadowsAdapter, T activity, Intent intent) {
+    return new ActivityController<>(shadowsAdapter, activity, intent).attach();
   }
 
   public static <T extends Activity> ActivityController<T> of(ShadowsAdapter shadowsAdapter, T activity) {
-    return new ActivityController<>(shadowsAdapter, activity);
+    return new ActivityController<>(shadowsAdapter, activity, null).attach();
   }
 
-  public ActivityController(ShadowsAdapter shadowsAdapter, T activity) {
-    super(shadowsAdapter, activity);
+  private ActivityController(ShadowsAdapter shadowsAdapter, T activity, Intent intent) {
+    super(shadowsAdapter, activity, intent);
     this.shadowsAdapter = shadowsAdapter;
     shadowReference = shadowsAdapter.getShadowActivityAdapter(this.component);
   }
 
+  public ActivityController<T> withIntent(Intent intent) {
+    super.withIntent(intent);
+
+    // This is a hack to support existing usages where withIntent() is called after attach().
+    ReflectionHelpers.setField(component, "mIntent", getIntent());
+    ReflectionHelpers.setField(component, "mComponent", getIntent().getComponent());
+    return myself;
+  }
+
   public ActivityController<T> attach() {
-    Application application = this.application == null ? RuntimeEnvironment.application : this.application;
-    if (this.application != null) {
-      shadowsAdapter.prepareShadowApplicationWithExistingApplication(this.application);
-      this.application.onCreate();
-      shadowReference.setTestApplication(this.application);
+    if (attached) {
+      return this;
     }
-    Context baseContext = this.baseContext == null ? application : this.baseContext;
+
+    Context baseContext = RuntimeEnvironment.application.getBaseContext();
 
     final String title = getActivityTitle();
     final ClassLoader cl = baseContext.getClassLoader();
-    final ActivityInfo info = getActivityInfo(application);
+    final ActivityInfo info = getActivityInfo(RuntimeEnvironment.application);
     final Class<?> threadClass = getActivityThreadClass(cl);
     final Class<?> nonConfigurationClass = getNonConfigurationClass(cl);
 
     final RuntimeAdapter runtimeAdapter = RuntimeAdapterFactory.getInstance();
-    runtimeAdapter.callActivityAttach(component, baseContext, threadClass, application, getIntent(), info, title, nonConfigurationClass);
+    runtimeAdapter.callActivityAttach(component, baseContext, threadClass, RuntimeEnvironment.application, getIntent(), info, title, nonConfigurationClass);
 
     shadowReference.setThemeFromManifest();
     attached = true;
@@ -101,16 +108,9 @@ public class ActivityController<T extends Activity> extends ComponentController<
     if (labelRef != null) {
       if (labelRef.startsWith("@")) {
         /* Label refers to a string value, get the resource identifier */
-        ResName style = ResName.qualifyResName(labelRef.replace("@", ""), appManifest.getPackageName(), "string");
-        Integer labelRes = shadowApplicationAdapter.getResourceLoader().getResourceIndex().getResourceId(style);
-
-        /* If we couldn't determine the resource ID, throw it up */
-        if (labelRes == null) {
-          throw new Resources.NotFoundException("no such label " + style.getFullyQualifiedName());
-        }
-
+        int labelRes = RuntimeEnvironment.application.getResources().getIdentifier(labelRef.replace("@", ""), "string", appManifest.getPackageName());
         /* Get the resource ID, use the activity to look up the actual string */
-        title = component.getString(labelRes);
+        title = RuntimeEnvironment.application.getString(labelRes);
       } else {
         title = labelRef; /* Label isn't an identifier, use it directly as the title */
       }
@@ -123,7 +123,6 @@ public class ActivityController<T extends Activity> extends ComponentController<
     shadowMainLooper.runPaused(new Runnable() {
       @Override
       public void run() {
-        if (!attached) attach();
         ReflectionHelpers.callInstanceMethod(Activity.class, component, "performCreate", ClassParameter.from(Bundle.class, bundle));
       }
     });

@@ -2,7 +2,6 @@ package org.robolectric;
 
 import android.app.Application;
 import android.os.Build;
-import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.TestOnly;
 import org.junit.AfterClass;
 import org.junit.BeforeClass;
@@ -16,34 +15,30 @@ import org.junit.runners.model.FrameworkMethod;
 import org.junit.runners.model.InitializationError;
 import org.junit.runners.model.Statement;
 import org.junit.runners.model.TestClass;
-import org.robolectric.annotation.*;
+import org.robolectric.annotation.Config;
 import org.robolectric.internal.InstrumentingClassLoaderFactory;
-import org.robolectric.internal.bytecode.*;
-import org.robolectric.internal.dependency.CachedDependencyResolver;
-import org.robolectric.internal.dependency.DependencyResolver;
-import org.robolectric.internal.dependency.LocalDependencyResolver;
-import org.robolectric.internal.dependency.MavenDependencyResolver;
 import org.robolectric.internal.ParallelUniverse;
 import org.robolectric.internal.ParallelUniverseInterface;
 import org.robolectric.internal.SdkConfig;
 import org.robolectric.internal.SdkEnvironment;
+import org.robolectric.internal.bytecode.*;
+import org.robolectric.internal.dependency.*;
 import org.robolectric.manifest.AndroidManifest;
-import org.robolectric.res.Fs;
-import org.robolectric.res.FsFile;
 import org.robolectric.res.OverlayResourceLoader;
 import org.robolectric.res.PackageResourceLoader;
+import org.robolectric.res.ResourceExtractor;
 import org.robolectric.res.ResourceLoader;
 import org.robolectric.res.ResourcePath;
 import org.robolectric.res.RoutingResourceLoader;
 import org.robolectric.util.Logger;
-import org.robolectric.util.ReflectionHelpers;
 import org.robolectric.util.Pair;
+import org.robolectric.util.ReflectionHelpers;
 
-import java.io.File;
-import java.io.IOException;
-import java.io.InputStream;
-import java.lang.annotation.Annotation;
-import java.lang.reflect.*;
+import java.io.*;
+import java.lang.reflect.Constructor;
+import java.lang.reflect.InvocationTargetException;
+import java.lang.reflect.Method;
+import java.net.URL;
 import java.security.SecureRandom;
 import java.util.*;
 
@@ -53,12 +48,8 @@ import java.util.*;
  */
 public class RobolectricTestRunner extends BlockJUnit4ClassRunner {
   private static final String CONFIG_PROPERTIES = "robolectric.properties";
-  private static final Config DEFAULT_CONFIG = new Config.Implementation(defaultsFor(Config.class));
   private static final Map<Pair<AndroidManifest, SdkConfig>, ResourceLoader> resourceLoadersByManifestAndConfig = new HashMap<>();
-  private static final Map<ManifestIdentifier, AndroidManifest> appManifestsByFile = new HashMap<>();
-  private static ShadowMap mainShadowMap;
 
-  private InstrumentingClassLoaderFactory instrumentingClassLoaderFactory;
   private TestLifecycle<Application> testLifecycle;
   private DependencyResolver dependencyResolver;
 
@@ -104,28 +95,25 @@ public class RobolectricTestRunner extends BlockJUnit4ClassRunner {
           dependencyResolver = new MavenDependencyResolver();
         }
       }
+
+      URL buildPathPropertiesUrl = getClass().getClassLoader().getResource("robolectric-deps.properties");
+      if (buildPathPropertiesUrl != null) {
+        try {
+          Logger.info("Using Robolectric classes from %s", buildPathPropertiesUrl.getPath());
+
+          final Properties properties = new Properties();
+          InputStream stream = buildPathPropertiesUrl.openStream();
+          properties.load(stream);
+          stream.close();
+
+          dependencyResolver = new PropertiesDependencyResolver(properties, dependencyResolver);
+        } catch (IOException e) {
+          throw new RuntimeException("couldn't read " + buildPathPropertiesUrl, e);
+        }
+      }
     }
 
     return dependencyResolver;
-  }
-
-  protected ClassHandler createClassHandler(ShadowMap shadowMap, SdkConfig sdkConfig) {
-    return new ShadowWrangler(shadowMap);
-  }
-
-  protected AndroidManifest createAppManifest(FsFile manifestFile, FsFile resDir, FsFile assetDir, String packageName) {
-    if (!manifestFile.exists()) {
-      System.out.print("WARNING: No manifest file found at " + manifestFile.getPath() + ".");
-      System.out.println("Falling back to the Android OS resources only.");
-      System.out.println("To remove this warning, annotate your test class with @Config(manifest=Config.NONE).");
-      return null;
-    }
-
-    Logger.debug("Robolectric assets directory: " + assetDir.getPath());
-    Logger.debug("   Robolectric res directory: " + resDir.getPath());
-    Logger.debug("   Robolectric manifest path: " + manifestFile.getPath());
-    Logger.debug("    Robolectric package name: " + packageName);
-    return new AndroidManifest(manifestFile, resDir, assetDir, packageName);
   }
 
   public InstrumentationConfiguration createClassLoaderConfig(Config config) {
@@ -241,10 +229,14 @@ public class RobolectricTestRunner extends BlockJUnit4ClassRunner {
             parallelUniverseInterface.setSdkConfig(sdkEnvironment.getSdkConfig());
 
             int sdkVersion = pickSdkVersion(config, appManifest);
-            ReflectionHelpers.setStaticField(sdkEnvironment.bootstrappedClass(Build.VERSION.class), "SDK_INT", sdkVersion);
+            ReflectionHelpers.setStaticField(sdkEnvironment.bootstrappedClass(Build.VERSION.class),
+                "SDK_INT", sdkVersion);
+            SdkConfig sdkConfig = new SdkConfig(sdkVersion);
+            ReflectionHelpers.setStaticField(sdkEnvironment.bootstrappedClass(Build.VERSION.class),
+                "RELEASE", sdkConfig.getAndroidVersion());
 
             ResourceLoader systemResourceLoader = sdkEnvironment.getSystemResourceLoader(getJarResolver());
-            setUpApplicationState(bootstrappedMethod, parallelUniverseInterface, systemResourceLoader, appManifest, config);
+            parallelUniverseInterface.setUpApplicationState(bootstrappedMethod, testLifecycle, systemResourceLoader, appManifest, config);
             testLifecycle.beforeTest(bootstrappedMethod);
           } catch (Exception e) {
             e.printStackTrace();
@@ -297,77 +289,13 @@ public class RobolectricTestRunner extends BlockJUnit4ClassRunner {
   }
 
   protected AndroidManifest getAppManifest(Config config) {
-    if (config.manifest().equals(Config.NONE)) {
-      return null;
-    }
-
-    String manifestProperty = System.getProperty("android.manifest");
-    String resourcesProperty = System.getProperty("android.resources");
-    String assetsProperty = System.getProperty("android.assets");
-    String packageName = System.getProperty("android.package");
-
-    FsFile baseDir;
-    FsFile manifestFile;
-    FsFile resDir;
-    FsFile assetDir;
-
-    boolean defaultManifest = config.manifest().equals(Config.DEFAULT);
-    if (defaultManifest && manifestProperty != null) {
-      manifestFile = Fs.fileFromPath(manifestProperty);
-      baseDir = manifestFile.getParent();
-    } else {
-      manifestFile = getBaseDir().join(defaultManifest ? AndroidManifest.DEFAULT_MANIFEST_NAME : config.manifest());
-      baseDir = manifestFile.getParent();
-    }
-
-    boolean defaultRes = Config.DEFAULT_RES_FOLDER.equals(config.resourceDir());
-    if (defaultRes && resourcesProperty != null) {
-      resDir = Fs.fileFromPath(resourcesProperty);
-    } else {
-      resDir = baseDir.join(config.resourceDir());
-    }
-
-    boolean defaultAssets = Config.DEFAULT_ASSET_FOLDER.equals(config.assetDir());
-    if (defaultAssets && assetsProperty != null) {
-      assetDir = Fs.fileFromPath(assetsProperty);
-    } else {
-      assetDir = baseDir.join(config.assetDir());
-    }
-
-    String configPackageName = config.packageName();
-    if (configPackageName != null && !configPackageName.isEmpty()) {
-      packageName = configPackageName;
-    }
-
-    List<FsFile> libraryDirs = null;
-    if (config.libraries().length > 0) {
-      libraryDirs = new ArrayList<>();
-      for (String libraryDirName : config.libraries()) {
-        libraryDirs.add(baseDir.join(libraryDirName));
-      }
-    }
-
-    ManifestIdentifier identifier = new ManifestIdentifier(manifestFile, resDir, assetDir, packageName, libraryDirs);
-    synchronized (appManifestsByFile) {
-      AndroidManifest appManifest;
-      appManifest = appManifestsByFile.get(identifier);
-      if (appManifest == null) {
-        appManifest = createAppManifest(manifestFile, resDir, assetDir, packageName);
-        if (libraryDirs != null) {
-          appManifest.setLibraryDirectories(libraryDirs);
-        }
-        appManifestsByFile.put(identifier, appManifest);
-      }
-      return appManifest;
-    }
-  }
-
-  protected FsFile getBaseDir() {
-    return Fs.currentDirectory();
+    return ManifestFactory.newManifestFactory(config).create();
   }
 
   public Config getConfig(Method method) {
-    Config config = DEFAULT_CONFIG;
+    Config config = new Config.Implementation(new int[0], Config.DEFAULT_MANIFEST, Config.DEFAULT_QUALIFIERS, Config.DEFAULT_PACKAGE_NAME,
+            Config.DEFAULT_ABI_SPLIT, Config.DEFAULT_RES_FOLDER, Config.DEFAULT_ASSET_FOLDER, Config.DEFAULT_BUILD_FOLDER, new Class[0],
+            new String[0], Application.class, new String[0], Void.class);
 
     Config globalConfig = Config.Implementation.fromProperties(getConfigProperties());
     if (globalConfig != null) {
@@ -439,14 +367,10 @@ public class RobolectricTestRunner extends BlockJUnit4ClassRunner {
     synchronized (sdkEnvironment) {
       classHandler = sdkEnvironment.classHandlersByShadowMap.get(shadowMap);
       if (classHandler == null) {
-        classHandler = createClassHandler(shadowMap, sdkEnvironment.getSdkConfig());
+        classHandler = new ShadowWrangler(shadowMap);
       }
     }
     return classHandler;
-  }
-
-  protected void setUpApplicationState(Method method, ParallelUniverseInterface parallelUniverseInterface, ResourceLoader systemResourceLoader, AndroidManifest appManifest, Config config) {
-    parallelUniverseInterface.setUpApplicationState(method, testLifecycle, systemResourceLoader, appManifest, config);
   }
 
   protected int pickSdkVersion(Config config, AndroidManifest manifest) {
@@ -454,10 +378,8 @@ public class RobolectricTestRunner extends BlockJUnit4ClassRunner {
       throw new IllegalArgumentException("RobolectricTestRunner does not support multiple values for @Config.sdk");
     } else if (config != null && config.sdk().length == 1) {
       return config.sdk()[0];
-    } else if (manifest != null) {
-      return manifest.getTargetSdkVersion();
     } else {
-      return SdkConfig.FALLBACK_SDK_VERSION;
+      return manifest.getTargetSdkVersion();
     }
   }
 
@@ -495,27 +417,19 @@ public class RobolectricTestRunner extends BlockJUnit4ClassRunner {
     Pair<AndroidManifest, SdkConfig> androidManifestSdkConfigPair = new Pair<>(appManifest, sdkConfig);
     ResourceLoader resourceLoader = resourceLoadersByManifestAndConfig.get(androidManifestSdkConfigPair);
     if (resourceLoader == null) {
-      resourceLoader = createAppResourceLoader(systemResourceLoader, appManifest);
+      Map<String, ResourceLoader> resourceLoaders = new HashMap<>();
+      resourceLoaders.put("android", systemResourceLoader);
+
+      List<PackageResourceLoader> appAndLibraryResourceLoaders = new ArrayList<>();
+      for (ResourcePath resourcePath : appManifest.getIncludedResourcePaths()) {
+        appAndLibraryResourceLoaders.add(new PackageResourceLoader(resourcePath, new ResourceExtractor(resourcePath)));
+      }
+      resourceLoaders.put(appManifest.getPackageName(), new OverlayResourceLoader(appManifest.getPackageName(), appAndLibraryResourceLoaders));
+
+      resourceLoader = new RoutingResourceLoader(resourceLoaders);
       resourceLoadersByManifestAndConfig.put(androidManifestSdkConfigPair, resourceLoader);
     }
     return resourceLoader;
-  }
-
-  protected ResourceLoader createAppResourceLoader(ResourceLoader systemResourceLoader, AndroidManifest appManifest) {
-    List<PackageResourceLoader> appAndLibraryResourceLoaders = new ArrayList<>();
-    for (ResourcePath resourcePath : appManifest.getIncludedResourcePaths()) {
-      appAndLibraryResourceLoaders.add(createResourceLoader(resourcePath));
-    }
-    OverlayResourceLoader overlayResourceLoader = new OverlayResourceLoader(appManifest.getPackageName(), appAndLibraryResourceLoaders);
-
-    Map<String, ResourceLoader> resourceLoaders = new HashMap<>();
-    resourceLoaders.put("android", systemResourceLoader);
-    resourceLoaders.put(appManifest.getPackageName(), overlayResourceLoader);
-    return new RoutingResourceLoader(resourceLoaders);
-  }
-
-  public PackageResourceLoader createResourceLoader(ResourcePath resourcePath) {
-    return new PackageResourceLoader(resourcePath);
   }
 
   protected ShadowMap createShadowMap() {
@@ -557,57 +471,5 @@ public class RobolectricTestRunner extends BlockJUnit4ClassRunner {
         }
       };
     }
-  }
-
-  private static class ManifestIdentifier {
-    private final FsFile manifestFile;
-    private final FsFile resDir;
-    private final FsFile assetDir;
-    private final String packageName;
-    private final List<FsFile> libraryDirs;
-
-    public ManifestIdentifier(FsFile manifestFile, FsFile resDir, FsFile assetDir, String packageName,
-        List<FsFile> libraryDirs) {
-      this.manifestFile = manifestFile;
-      this.resDir = resDir;
-      this.assetDir = assetDir;
-      this.packageName = packageName;
-      this.libraryDirs = libraryDirs != null ? libraryDirs : Collections.<FsFile>emptyList();
-    }
-
-    @Override
-    public boolean equals(Object o) {
-      if (this == o) return true;
-      if (o == null || getClass() != o.getClass()) return false;
-
-      ManifestIdentifier that = (ManifestIdentifier) o;
-
-      return assetDir.equals(that.assetDir)
-          && libraryDirs.equals(that.libraryDirs)
-          && manifestFile.equals(that.manifestFile)
-          && resDir.equals(that.resDir)
-          && ((packageName == null && that.packageName == null) || (packageName != null && packageName.equals(that.packageName)));
-    }
-
-    @Override
-    public int hashCode() {
-      int result = manifestFile.hashCode();
-      result = 31 * result + resDir.hashCode();
-      result = 31 * result + assetDir.hashCode();
-      result = 31 * result + (packageName == null ? 0 : packageName.hashCode());
-      result = 31 * result + libraryDirs.hashCode();
-      return result;
-    }
-  }
-
-  private static <A extends Annotation> A defaultsFor(Class<A> annotation) {
-    return annotation.cast(
-        Proxy.newProxyInstance(annotation.getClassLoader(), new Class[] { annotation },
-            new InvocationHandler() {
-              public Object invoke(Object proxy, @NotNull Method method, Object[] args)
-                  throws Throwable {
-                return method.getDefaultValue();
-              }
-            }));
   }
 }

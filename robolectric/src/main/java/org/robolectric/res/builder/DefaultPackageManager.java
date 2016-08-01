@@ -22,7 +22,6 @@ import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Iterables;
 
 import org.robolectric.RuntimeEnvironment;
-import org.robolectric.ShadowsAdapter;
 import org.robolectric.manifest.ActivityData;
 import org.robolectric.manifest.AndroidManifest;
 import org.robolectric.manifest.BroadcastReceiverData;
@@ -50,8 +49,11 @@ import java.util.TreeMap;
 
 public class DefaultPackageManager extends StubPackageManager implements RobolectricPackageManager {
 
-  public DefaultPackageManager(ShadowsAdapter shadowsAdapter) {
-    this.shadowsAdapter = shadowsAdapter;
+  private Map<Integer, String> namesForUid = new HashMap<>();
+  private ResourceLoader appResourceLoader;
+
+  public DefaultPackageManager(ResourceLoader appResourceLoader) {
+    this.appResourceLoader = appResourceLoader;
   }
 
   static class IntentComparator implements Comparator<Intent> {
@@ -116,7 +118,6 @@ public class DefaultPackageManager extends StubPackageManager implements Robolec
     }
   }
 
-  private final ShadowsAdapter shadowsAdapter;
   private final Map<String, AndroidManifest> androidManifests = new LinkedHashMap<>();
   private final Map<String, PackageInfo> packageInfos = new LinkedHashMap<>();
   private Map<Intent, List<ResolveInfo>> resolveInfoForIntent = new TreeMap<>(new IntentComparator());
@@ -172,7 +173,6 @@ public class DefaultPackageManager extends StubPackageManager implements Robolec
     if (activityData != null) {
       activityInfo.parentActivityName = activityData.getParentActivityName();
       activityInfo.metaData = metaDataToBundle(activityData.getMetaData().getValueMap());
-      ResourceIndex resourceIndex = shadowsAdapter.getResourceLoader().getResourceIndex();
       String themeRef;
 
       // Based on ShadowActivity
@@ -182,8 +182,7 @@ public class DefaultPackageManager extends StubPackageManager implements Robolec
         themeRef = androidManifest.getThemeRef();
       }
       if (themeRef != null) {
-        ResName style = ResName.qualifyResName(themeRef.replace("@", ""), packageName, "style");
-        activityInfo.theme = resourceIndex.getResourceId(style);
+        activityInfo.theme = RuntimeEnvironment.application.getResources().getIdentifier(themeRef.replace("@", ""), "style", packageName);
       }
     }
     activityInfo.applicationInfo = getApplicationInfo(packageName, flags);
@@ -443,12 +442,11 @@ public class DefaultPackageManager extends StubPackageManager implements Robolec
   }
 
   @Override
-  public void addManifest(AndroidManifest androidManifest, ResourceLoader loader) {
+  public void addManifest(AndroidManifest androidManifest) {
     androidManifests.put(androidManifest.getPackageName(), androidManifest);
-    ResourceIndex resourceIndex = loader.getResourceIndex();
 
     // first opportunity to access a resource index for this manifest, use it to init the references
-    androidManifest.initMetaData(loader);
+    androidManifest.initMetaData(appResourceLoader);
 
     PackageInfo packageInfo = new PackageInfo();
     packageInfo.packageName = androidManifest.getPackageName();
@@ -514,6 +512,7 @@ public class DefaultPackageManager extends StubPackageManager implements Robolec
     applicationInfo.sourceDir = new File(".").getAbsolutePath();
     applicationInfo.dataDir = TempDirectory.create().toAbsolutePath().toString();
 
+    ResourceIndex resourceIndex = appResourceLoader.getResourceIndex();
     if (androidManifest.getLabelRef() != null && resourceIndex != null) {
       Integer id = ResName.getResourceId(resourceIndex, androidManifest.getLabelRef(), androidManifest.getPackageName());
       applicationInfo.labelRes = id != null ? id : 0;
@@ -706,6 +705,16 @@ public class DefaultPackageManager extends StubPackageManager implements Robolec
         TempDirectory.destroy(Paths.get(info.applicationInfo.dataDir));
       }
     }
+  }
+
+  @Override
+  public void setNameForUid(int uid, String name) {
+    namesForUid.put(uid, name);
+  }
+
+  @Override
+  public String getNameForUid(int uid) {
+    return namesForUid.get(uid);
   }
 
   /**

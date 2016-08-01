@@ -2,7 +2,6 @@ package org.robolectric.shadows;
 
 import android.app.Activity;
 import android.content.Context;
-import android.content.res.Resources;
 import android.graphics.BitmapFactory;
 import android.graphics.Point;
 import android.graphics.drawable.BitmapDrawable;
@@ -10,15 +9,16 @@ import android.graphics.drawable.ColorDrawable;
 import android.graphics.drawable.Drawable;
 import android.os.Build;
 import android.os.Bundle;
+import android.util.AttributeSet;
 import android.view.ContextMenu;
 import android.view.HapticFeedbackConstants;
 import android.view.MotionEvent;
 import android.view.View;
+import android.view.ViewGroup;
+import android.view.ViewTreeObserver;
 import android.view.View.MeasureSpec;
 import android.view.View.OnClickListener;
 import android.view.View.OnLongClickListener;
-import android.view.ViewGroup;
-import android.view.ViewTreeObserver;
 import android.view.WindowManager;
 import android.view.animation.AlphaAnimation;
 import android.view.animation.Animation;
@@ -33,14 +33,11 @@ import org.robolectric.RuntimeEnvironment;
 import org.robolectric.TestRunners;
 import org.robolectric.annotation.AccessibilityChecks;
 import org.robolectric.annotation.Config;
-import org.robolectric.res.Attribute;
-import org.robolectric.res.ResourceLoader;
 import org.robolectric.util.TestOnClickListener;
 import org.robolectric.util.TestOnLongClickListener;
 import org.robolectric.util.TestRunnable;
 import org.robolectric.util.Transcript;
 
-import java.util.ArrayList;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 import static junit.framework.Assert.assertEquals;
@@ -59,15 +56,11 @@ import static org.robolectric.Shadows.shadowOf;
 public class ShadowViewTest {
   private View view;
   private Transcript transcript;
-  private Resources resources;
-  private ResourceLoader resourceLoader;
 
   @Before
   public void setUp() throws Exception {
     transcript = new Transcript();
     view = new View(RuntimeEnvironment.application);
-    resources = RuntimeEnvironment.application.getResources();
-    resourceLoader = shadowOf(resources).getResourceLoader();
   }
 
   @Test
@@ -340,8 +333,10 @@ public class ShadowViewTest {
 
   @Test
   public void shouldAddOnClickListenerFromAttribute() throws Exception {
-    RoboAttributeSet attrs = new RoboAttributeSet(new ArrayList<Attribute>(), resourceLoader);
-    attrs.put("android:attr/onClick", "clickMe", R.class.getPackage().getName());
+    AttributeSet attrs = Robolectric.buildAttributeSet()
+        .addAttribute(android.R.attr.onClick, "clickMe")
+        .build()
+        ;
 
     view = new View(RuntimeEnvironment.application, attrs);
     assertNotNull(shadowOf(view).getOnClickListener());
@@ -350,8 +345,10 @@ public class ShadowViewTest {
   @Test
   public void shouldCallOnClickWithAttribute() throws Exception {
     MyActivity myActivity = buildActivity(MyActivity.class).create().get();
-    RoboAttributeSet attrs = new RoboAttributeSet(new ArrayList<Attribute>(), resourceLoader);
-    attrs.put("android:attr/onClick", "clickMe", R.class.getPackage().getName());
+
+    AttributeSet attrs = Robolectric.buildAttributeSet()
+        .addAttribute(android.R.attr.onClick, "clickMe")
+        .build();
 
     view = new View(myActivity, attrs);
     view.performClick();
@@ -361,8 +358,10 @@ public class ShadowViewTest {
   @Test(expected = RuntimeException.class)
   public void shouldThrowExceptionWithBadMethodName() throws Exception {
     MyActivity myActivity = buildActivity(MyActivity.class).create().get();
-    RoboAttributeSet attrs = new RoboAttributeSet(new ArrayList<Attribute>(), resourceLoader);
-    attrs.put("android:onClick", "clickYou", R.class.getPackage().getName());
+
+    AttributeSet attrs = Robolectric.buildAttributeSet()
+        .addAttribute(android.R.attr.onClick, "clickYou")
+        .build();
 
     view = new View(myActivity, attrs);
     view.performClick();

@@ -32,13 +32,10 @@ import org.junit.runner.RunWith;
 import org.robolectric.RobolectricTestRunner;
 import org.robolectric.annotation.Config;
 import org.robolectric.res.Fs;
-import org.robolectric.res.ResourcePath;
 import org.robolectric.test.TemporaryFolder;
 
 import java.io.File;
 import java.io.IOException;
-import java.util.ArrayList;
-import java.util.Collection;
 import java.util.List;
 import java.util.Map;
 
@@ -53,10 +50,10 @@ public class AndroidManifestTest {
     assertThat(config.getContentProviders()).hasSize(2);
 
     assertThat(config.getContentProviders().get(0).getClassName()).isEqualTo("org.robolectric.tester.FullyQualifiedClassName");
-    assertThat(config.getContentProviders().get(0).getAuthority()).isEqualTo("org.robolectric");
+    assertThat(config.getContentProviders().get(0).getAuthority()).isEqualTo("org.robolectric.authority1");
 
     assertThat(config.getContentProviders().get(1).getClassName()).isEqualTo("org.robolectric.tester.PartiallyQualifiedClassName");
-    assertThat(config.getContentProviders().get(1).getAuthority()).isEqualTo("org.robolectric");
+    assertThat(config.getContentProviders().get(1).getAuthority()).isEqualTo("org.robolectric.authority2");
   }
 
   @Test

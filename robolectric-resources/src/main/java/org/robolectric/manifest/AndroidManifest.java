@@ -1,7 +1,7 @@
 package org.robolectric.manifest;
 
 import android.app.Activity;
-import java.io.IOException;
+
 import java.io.InputStream;
 import java.util.ArrayList;
 import java.util.Collection;
@@ -11,12 +11,10 @@ import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
-import java.util.Properties;
 import javax.xml.parsers.DocumentBuilder;
 import javax.xml.parsers.DocumentBuilderFactory;
 
 import com.google.common.base.Preconditions;
-import org.robolectric.annotation.Config;
 import org.robolectric.res.FsFile;
 import org.robolectric.res.ResourceLoader;
 import org.robolectric.res.ResourcePath;
@@ -79,9 +77,7 @@ public class AndroidManifest {
    * @param assetsDirectory     Location of the assets directory.
    */
   public AndroidManifest(FsFile androidManifestFile, FsFile resDirectory, FsFile assetsDirectory) {
-    this.androidManifestFile = androidManifestFile;
-    this.resDirectory = resDirectory;
-    this.assetsDirectory = assetsDirectory;
+    this(androidManifestFile, resDirectory, assetsDirectory, null);
   }
 
   /**
@@ -93,7 +89,9 @@ public class AndroidManifest {
    * @param packageName         Application package name.
    */
   public AndroidManifest(FsFile androidManifestFile, FsFile resDirectory, FsFile assetsDirectory, String packageName) {
-    this(androidManifestFile, resDirectory, assetsDirectory);
+    this.androidManifestFile = androidManifestFile;
+    this.resDirectory = resDirectory;
+    this.assetsDirectory = assetsDirectory;
     this.packageName = packageName;
   }
 
@@ -186,7 +184,10 @@ public class AndroidManifest {
       Node nameItem = contentProviderNode.getAttributes().getNamedItem("android:name");
       Node authorityItem = contentProviderNode.getAttributes().getNamedItem("android:authorities");
       if (nameItem != null && authorityItem != null) {
-        providers.add(new ContentProviderData(resolveClassRef(nameItem.getTextContent()), authorityItem.getTextContent()));
+        MetaData metaData = new MetaData(getChildrenTags(contentProviderNode, "meta-data"));
+
+        providers.add(new ContentProviderData(resolveClassRef(nameItem.getTextContent()), metaData,
+            authorityItem.getTextContent()));
       }
     }
   }
@@ -380,7 +381,7 @@ public class AndroidManifest {
     if (applicationMetaData != null) {
       applicationMetaData.init(resLoader, packageName);
     }
-    for (BroadcastReceiverData receiver : receivers) {
+    for (PackageItemData receiver : receivers) {
       receiver.getMetaData().init(resLoader, packageName);
     }
     for (ServiceData service : serviceDatas.values()) {
@@ -507,7 +508,7 @@ public class AndroidManifest {
   }
 
   public ResourcePath getResourcePath() {
-    return new ResourcePath(getPackageName(), resDirectory, assetsDirectory, getRClass());
+    return new ResourcePath(getRClass(), getPackageName(), resDirectory, assetsDirectory);
   }
 
   public List<ResourcePath> getIncludedResourcePaths() {

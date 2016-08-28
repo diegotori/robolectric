@@ -30,6 +30,8 @@ import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.TimeUnit;
 
+import static com.google.android.gms.common.api.GoogleApiClient.SIGN_IN_MODE_OPTIONAL;
+import static com.google.android.gms.common.api.GoogleApiClient.SIGN_IN_MODE_REQUIRED;
 import static org.robolectric.internal.Shadow.directlyOn;
 import static com.google.android.gms.common.api.GoogleApiClient.ConnectionCallbacks;
 import static com.google.android.gms.common.api.GoogleApiClient.OnConnectionFailedListener;
@@ -43,21 +45,24 @@ import static org.robolectric.util.ReflectionHelpers.ClassParameter;
 public class ShadowGoogleApiClient {
     @RealObject
     protected GoogleApiClient realGoogleApiClient;
-    public Looper looper;
+    private Looper looper;
     private Context context;
     private List<String> scopeUris;
+    private PendingResult<Status> reconnectPendingResult;
     private Set<GoogleApiClient.ConnectionCallbacks> connCallbacks;
     private Set<GoogleApiClient.OnConnectionFailedListener> failedListeners;
-    private Map<Api<?>, Api.ApiOptions> apiApiOptionsMap;
+    private Map<Api<?>, Api.ApiOptions> apiToApiOptionsMap;
     private int clientId;
+    private Integer currentSignInMode;
     private boolean isConnected = true;
     private boolean isConnecting = true;
     private HashMap<Api<?>, ConnectionResult> apiToConnectionResultMap = new HashMap<>();
+    private HashMap<Api<?>, Boolean> apiToConnectedMap = new HashMap<>();
 
     public void __constructor__(){
         connCallbacks = new HashSet<>();
         failedListeners = new HashSet<>();
-        apiApiOptionsMap = new HashMap<>();
+        apiToApiOptionsMap = new HashMap<>();
     }
 
     @Implementation
@@ -72,8 +77,8 @@ public class ShadowGoogleApiClient {
 
     @Implementation
     public void connect() {
-        final int statusCode = GoogleApiAvailability.getInstance()
-                .isGooglePlayServicesAvailable(context);
+        final GoogleApiAvailability googleApiAvailability = GoogleApiAvailability.getInstance();
+        final int statusCode = googleApiAvailability.isGooglePlayServicesAvailable(context);
         switch (statusCode){
             case ConnectionResult.SUCCESS:
                 for (ConnectionCallbacks callback : connCallbacks) {
@@ -89,11 +94,18 @@ public class ShadowGoogleApiClient {
                     }
                 }
                 break;
-            case ConnectionResult.API_UNAVAILABLE:
+            case ConnectionResult.INTERRUPTED:
+                for (ConnectionCallbacks callback : connCallbacks) {
+                    if (callback != null) {
+                        callback.onConnectionSuspended(ConnectionCallbacks.CAUSE_SERVICE_DISCONNECTED);
+                    }
+                }
+                break;
+            default: //All other cases
+                final ConnectionResult errorCause = new ConnectionResult(statusCode);
                 for(OnConnectionFailedListener listener : failedListeners){
                     if(listener != null){
-                        listener.onConnectionFailed(new ConnectionResult(ConnectionResult
-                                .API_UNAVAILABLE, null));
+                        listener.onConnectionFailed(errorCause);
                     }
                 }
                 break;
@@ -101,23 +113,49 @@ public class ShadowGoogleApiClient {
     }
 
     @Implementation
-    public ConnectionResult getConnectionResult(@NonNull Api<?> var1){
-        return apiToConnectionResultMap.get(var1);
+    public void connect(int signInMode){
+        if(currentSignInMode == null){
+            if(!(signInMode == 3 || signInMode == SIGN_IN_MODE_OPTIONAL ||
+                signInMode == SIGN_IN_MODE_REQUIRED)){
+                throw new IllegalArgumentException("Illegal sign-in mode: " + signInMode);
+            }
+            currentSignInMode = signInMode;
+        } else if(currentSignInMode != signInMode){
+            throw new IllegalStateException("Cannot use sign-in mode: " +
+                getSignInModeLabel(signInMode) + ". Mode was "
+                + "already set to " + getSignInModeLabel(currentSignInMode));
+        }
+        connect();
+    }
+
+    @Implementation
+    public ConnectionResult getConnectionResult(@NonNull Api<?> api){
+        return apiToConnectionResultMap.get(api);
+    }
+
+    @Implementation
+    public boolean hasConnectedApi(@NonNull Api<?> api) {
+        final Boolean apiConnected = apiToConnectedMap.get(api);
+        return apiConnected != null && apiConnected;
     }
 
     @Implementation
     public ConnectionResult blockingConnect() {
-        return new ConnectionResult(ConnectionResult.SUCCESS, null);
+        final GoogleApiAvailability googleApiAvailability = GoogleApiAvailability.getInstance();
+        final int statusCode = googleApiAvailability.isGooglePlayServicesAvailable(context);
+        return new ConnectionResult(statusCode);
     }
 
     @Implementation
     public ConnectionResult blockingConnect(long l, TimeUnit timeUnit) {
-        return new ConnectionResult(ConnectionResult.SUCCESS, null);
+        final GoogleApiAvailability googleApiAvailability = GoogleApiAvailability.getInstance();
+        final int statusCode = googleApiAvailability.isGooglePlayServicesAvailable(context);
+        return new ConnectionResult(statusCode);
     }
 
     @Implementation
     public void disconnect() {
-        System.out.println("\nFakeGoogleApiClient.reconnect() called.");
+        System.out.println("\nFakeGoogleApiClient.disconnect() called.");
         for (ConnectionCallbacks callback : connCallbacks) {
             if (callback != null) {
                 callback.onConnectionSuspended(ConnectionCallbacks.CAUSE_SERVICE_DISCONNECTED);
@@ -135,7 +173,7 @@ public class ShadowGoogleApiClient {
     public PendingResult<Status> clearDefaultAccountAndReconnect() {
         disconnect();
         reconnect();
-        return null;
+        return reconnectPendingResult;
     }
 
     @Implementation
@@ -207,23 +245,49 @@ public class ShadowGoogleApiClient {
         this.context = context;
     }
 
-    public void setScopeUris(List<String> scopeUris) {
+    public void setHasConnectedApi(final Api<?> api, final Boolean isConnected){
+        apiToConnectedMap.put(api, isConnected);
+    }
+
+   public Integer getCurrentSignInMode() {
+       return currentSignInMode;
+   }
+
+   public void setReconnectPendingResult(final PendingResult<Status>
+       pendingResult) {
+       this.reconnectPendingResult = pendingResult;
+   }
+
+    private String getSignInModeLabel(int signInMode){
+        switch (signInMode){
+            case 1:
+                return "SIGN_IN_MODE_REQUIRED";
+            case 2:
+                return "SIGN_IN_MODE_OPTIONAL";
+            case 3:
+                return "SIGN_IN_MODE_NONE";
+            default:
+                return "UNKNOWN";
+        }
+    }
+
+    private void setScopeUris(List<String> scopeUris) {
         this.scopeUris = scopeUris;
     }
 
-    public void setConnCallbacks(Set<GoogleApiClient.ConnectionCallbacks> connCallbacks) {
+    private void setConnCallbacks(Set<GoogleApiClient.ConnectionCallbacks> connCallbacks) {
         this.connCallbacks = connCallbacks;
     }
 
-    public void setFailedListeners(Set<GoogleApiClient.OnConnectionFailedListener> failedListeners) {
+    private void setFailedListeners(Set<GoogleApiClient.OnConnectionFailedListener> failedListeners) {
         this.failedListeners = failedListeners;
     }
 
-    public void setApiApiOptionsMap(Map<Api<?>, Api.ApiOptions> apiApiOptionsMap) {
-        this.apiApiOptionsMap = apiApiOptionsMap;
+    private void setApiToApiOptionsMap(Map<Api<?>, Api.ApiOptions> apiToApiOptionsMap) {
+        this.apiToApiOptionsMap = apiToApiOptionsMap;
     }
 
-    public void setClientId(int clientId) {
+    private void setClientId(int clientId) {
         this.clientId = clientId;
     }
 
@@ -452,7 +516,7 @@ public class ShadowGoogleApiClient {
             s.setClientId(clientId);
             final ArrayList<String> scopeUriList = new ArrayList<String>(scopeUris);
             s.setScopeUris(Collections.unmodifiableList(scopeUriList));
-            s.setApiApiOptionsMap(apiToOptionsMap);
+            s.setApiToApiOptionsMap(apiToOptionsMap);
             s.setFailedListeners(failedListeners);
             s.setConnCallbacks(connCallbacks);
         }
